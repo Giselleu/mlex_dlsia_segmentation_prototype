@@ -1,3 +1,7 @@
+numpy==1.26.0
+pandas==2.0.2
+pyarrow==14.0.0
+torch==2.2.2
 qlty==0.1.7
 dvclive==3.44.0
 dlsia==0.3.1
