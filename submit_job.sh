@@ -3,9 +3,9 @@
 #SBATCH -A als
 #SBATCH -q regular
 #SBATCH --ntasks-per-node 4
-#SBATCH --cpus-per-task 32
+#SBATCH --cpus-per-task 16
 #SBATCH --gpus-per-node 4
-#SBATCH --time=02:00:00
+#SBATCH --time=00:10:00
 #SBATCH -J seg-inference-DDP
 #SBATCH -o %x-%j.out
 #SBATCH --mail-type=begin,end,fail
@@ -23,6 +23,6 @@ export CUDA_VISIBLE_DEVICES=3,2,1,0
 set -x
 srun bash -c "
     source export_DDP_vars.sh
-    python vae_trial_run_mp_progress.py ${args}
+    python src/segment_no_tiled.py example_yamls/example_tunet.yaml ${args}
     "
 

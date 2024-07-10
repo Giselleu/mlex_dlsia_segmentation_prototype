@@ -33,7 +33,7 @@ model_parameters:
 
   batch_size_val: 1
 
-  batch_size_inference: 2
+  batch_size_inference: 128
   val_pct: 0.2
 
   depth: 4
