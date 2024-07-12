@@ -7,7 +7,7 @@
 #SBATCH --gpus-per-node 4
 #SBATCH --time=00:10:00
 #SBATCH -J seg-inference-DDP
-#SBATCH -o %x-%j.out
+#SBATCH -o outputs/%x-%j.out
 #SBATCH --mail-type=begin,end,fail
 #SBATCH --mail-user=ShizhaoLu@lbl.gov
 
