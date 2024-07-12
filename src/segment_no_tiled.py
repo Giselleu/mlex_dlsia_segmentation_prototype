@@ -2,6 +2,7 @@ import argparse
 import glob
 import os
 import numpy as np
+import time
 
 import torch
 import yaml
@@ -12,6 +13,7 @@ import tifffile
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data.distributed import DistributedSampler
+from torch.distributed import ReduceOp
 
 from network import baggin_smsnet_ensemble, load_network
 from parameters import (
@@ -30,6 +32,36 @@ def worker_init(wrk_id):
 
 if __name__ == "__main__":
 
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    
+    is_distributed = False
+    if 'WORLD_SIZE' in os.environ:
+        is_distributed = int(os.environ['WORLD_SIZE']) > 1
+        world_size = int(os.environ['WORLD_SIZE'])
+    else:
+        world_size = 1
+    
+    world_rank = 0
+    local_rank = 0
+    if is_distributed:
+        torch.distributed.init_process_group(backend='nccl',
+                                         init_method='env://')
+        world_rank = torch.distributed.get_rank()
+        local_rank = int(os.environ['LOCAL_RANK'])
+    
+    if device != "cpu":
+        torch.backends.cudnn.benchmark = True
+        torch.cuda.set_device(local_rank)
+        device = torch.device('cuda:%d'%local_rank)
+    print(f"Inference will be processed on: {device}")
+    
+    # wait for all gpus to be initialized
+    torch.distributed.barrier()
+    
+    if world_rank == 0:
+        print(f"number of gpus is %i" %world_size)
+        
+        
     parser = argparse.ArgumentParser()
     parser.add_argument("yaml_path", type=str, help="path of yaml file for parameters")
     args = parser.parse_args()
@@ -59,7 +91,8 @@ if __name__ == "__main__":
 
     assert model_parameters, f"Received Unsupported Network: {network}"
 
-    print("Parameters loaded successfully.")
+    if world_rank == 0:
+        print("Parameters loaded successfully.")
 
     # data_tiled_client = from_uri(
     #     io_parameters.data_tiled_uri, api_key=io_parameters.data_tiled_api_key
@@ -80,32 +113,17 @@ if __name__ == "__main__":
     #     transform=transforms.ToTensor(),
     # )
     
-    is_distributed = False
-    if 'WORLD_SIZE' in os.environ:
-        is_distributed = int(os.environ['WORLD_SIZE']) > 1
-        world_size = int(os.environ['WORLD_SIZE'])
-    else:
-        world_size = 1
-    
-    world_rank = 0
-    local_rank = 0
-    if is_distributed:
-        torch.distributed.init_process_group(backend='nccl',
-                                         init_method='env://')
-        world_rank = torch.distributed.get_rank()
-        local_rank = int(os.environ['LOCAL_RANK'])
-    
-    torch.backends.cudnn.benchmark = True
-    torch.cuda.set_device(local_rank)
-    device = torch.device('cuda:%d'%local_rank)
-    print(f"Inference will be processed on: {device}")
     
     image_directory = "/pscratch/sd/s/shizhaou/projects/2024-Tanny-sand-images/Sand data_Tanny_07_03_2024/"
     image_list = os.listdir(image_directory)
-    dataset = np.zeros((125, 2560, 2560))
+    dataset = np.zeros((1000, 2560, 2560))
     for i in range(125):
         dataset[i] = tifffile.imread(image_directory + image_list[i])
 
+    for i in range(1,8):
+        dataset[125 * i: 125 * (i + 1)] = np.copy(dataset[:125])
+
+    
     qlty_inference = NCYXQuilt(
         X=dataset.shape[-1],
         Y=dataset.shape[-2],
@@ -116,7 +134,6 @@ if __name__ == "__main__":
     )
     
     local_data_size = dataset.shape[0] / world_size
-    
     
     
     if is_distributed:
@@ -163,7 +180,8 @@ if __name__ == "__main__":
     # )
     
     local_frame_count = 0
-
+    
+    start = time.time()
     for batch in dataloader:
         seg_result = crop_seg_save(
             net=net,
@@ -175,5 +193,13 @@ if __name__ == "__main__":
             frame_idx=world_rank * local_data_size + local_frame_count,
         )
         local_frame_count += 1
-    print("Segmentation completed.")
+    end = time.time()
+    inference_time = torch.tensor(end - start).to(device)
+    
+    if is_distributed:
+        torch.distributed.barrier()
+        torch.distributed.all_reduce(inference_time, op=ReduceOp.AVG)
+    
+    if world_rank == 0:
+        print("Segmentation completed in %1.2fs." %inference_time.cpu())
 
