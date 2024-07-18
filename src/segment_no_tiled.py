@@ -219,7 +219,7 @@ if __name__ == "__main__":
         
         # save segmentation result per frame
         if world_rank == 0:
-            tifffile.imwrite("/pscratch/sd/s/shizhaou/projects/mlex_dlsia_segmentation_prototype/inference_results/seg_result_%5d.png" % local_frame_count, seg_result)
+            tifffile.imwrite("/pscratch/sd/s/shizhaou/projects/mlex_dlsia_segmentation_prototype/inference_results/seg_result_%5d.tiff" % local_frame_count, seg_result)
         local_frame_count += 1
         
     end = time.time()
