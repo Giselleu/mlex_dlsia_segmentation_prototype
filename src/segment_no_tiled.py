@@ -1,14 +1,16 @@
+import time
+start = time.time()
 import argparse
 import glob
 import os
 import numpy as np
-import time
 
 import torch
 import yaml
 from qlty.qlty2D import NCYXQuilt
 # from tiled.client import from_uri
 from torchvision import transforms
+from torchvision.utils import save_image
 import tifffile
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.parallel import DistributedDataParallel
@@ -23,15 +25,25 @@ from parameters import (
     TUNet3PlusParameters,
     TUNetParameters,
 )
-from seg_utils import crop_seg_save
+from seg_utils_mp import crop_seg_save
 # from tiled_dataset import TiledDataset
 # from utils import allocate_array_space
+
+end = time.time()
+load_module_time = end - start
+
 
 def worker_init(wrk_id):
     np.random.seed(torch.utils.data.get_worker_info().seed%(2**32 - 1))
 
+def listdir_nohidden(path):
+    for f in os.listdir(path):
+        if not f.startswith('.'):
+            yield f
+            
 if __name__ == "__main__":
-
+    
+    start = time.time()
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     
     is_distributed = False
@@ -56,7 +68,12 @@ if __name__ == "__main__":
     print(f"Inference will be processed on: {device}")
     
     # wait for all gpus to be initialized
-    torch.distributed.barrier()
+    if is_distributed:
+        torch.distributed.barrier()
+    
+    end = time.time()
+    torch_dist_init_time = torch.tensor(end - start).to(device)
+    load_module_time = torch.tensor(load_module_time).to(device)
     
     if world_rank == 0:
         print(f"number of gpus is %i" %world_size)
@@ -113,9 +130,9 @@ if __name__ == "__main__":
     #     transform=transforms.ToTensor(),
     # )
     
-    
+    start = time.time()
     image_directory = "/pscratch/sd/s/shizhaou/projects/2024-Tanny-sand-images/Sand data_Tanny_07_03_2024/"
-    image_list = os.listdir(image_directory)
+    image_list = list(listdir_nohidden(image_directory))
     dataset = np.zeros((1000, 2560, 2560))
     for i in range(125):
         dataset[i] = tifffile.imread(image_directory + image_list[i])
@@ -123,6 +140,10 @@ if __name__ == "__main__":
     for i in range(1,8):
         dataset[125 * i: 125 * (i + 1)] = np.copy(dataset[:125])
 
+#     if world_rank == 0:
+#         np.save("/pscratch/sd/s/shizhaou/projects/2024-Tanny-sand-images/1000_frame_sand_data.npy", dataset)
+    
+    # dataset = np.memmap("/pscratch/sd/s/shizhaou/projects/2024-Tanny-sand-images/1000_frame_sand_data.npy", mode='w+', dtype=np.float16, shape=(1000, 2560, 2560))
     
     qlty_inference = NCYXQuilt(
         X=dataset.shape[-1],
@@ -136,24 +157,15 @@ if __name__ == "__main__":
     local_data_size = dataset.shape[0] / world_size
     
     
-    if is_distributed:
-        data_sampler = DistributedSampler(dataset, shuffle=False)
-        dataloader = DataLoader(dataset,
-                                 shuffle=False,
-                                 batch_size=1,
-                                 sampler=data_sampler,
-                                 num_workers=1,
-                                 worker_init_fn=worker_init,
-                                 persistent_workers=True,
-                                 pin_memory=torch.cuda.is_available())
-    else:
-        dataloader = DataLoader(dataset,
-                                 shuffle=False,
-                                 batch_size=1,
-                                 num_workers=1,
-                                 worker_init_fn=worker_init,
-                                 persistent_workers=True,
-                                 pin_memory=torch.cuda.is_available())
+    data_sampler = DistributedSampler(dataset, shuffle=False) if is_distributed else None
+    dataloader = DataLoader(dataset,
+                             shuffle=False,
+                             batch_size=1,
+                             sampler=data_sampler,
+                             num_workers=1,
+                             persistent_workers=True,
+                             pin_memory=True
+                           )
 
     # model_dir = os.path.join(io_parameters.models_dir, io_parameters.uid_retrieve)
     model_dir = '/pscratch/sd/s/shizhaou/projects/2024-Tanny-sand-images/trained_TUNet.pt'
@@ -165,6 +177,11 @@ if __name__ == "__main__":
         # net_files = glob.glob(os.path.join(model_dir, "*.pt"))
         # net = load_network(network, net_files[0])
         net = load_network(network, model_dir)
+    
+    net.eval().to(device)
+    
+    end = time.time()
+    load_data_model_time = torch.tensor(end - start).to(device)
 
     # Allocate Result space in Tiled
     # seg_client = allocate_array_space(
@@ -183,6 +200,13 @@ if __name__ == "__main__":
     
     start = time.time()
     for batch in dataloader:
+        if world_rank == 0:
+            if local_frame_count == 5:
+                torch.cuda.profiler.start()
+            if local_frame_count == 10:
+                torch.cuda.profiler.stop()
+        
+        torch.cuda.nvtx.range_push(f"step {local_frame_count}")
         seg_result = crop_seg_save(
             net=net,
             device=device,
@@ -192,14 +216,26 @@ if __name__ == "__main__":
             # tiled_client=seg_client,
             frame_idx=world_rank * local_data_size + local_frame_count,
         )
+        torch.cuda.nvtx.range_pop()
+        
+        # save segmentation result per frame
+        if world_rank == 0:
+            save_image(seg_result, "/pscratch/sd/s/shizhaou/projects/mlex_dlsia_segmentation_prototype/inference_results/seg_result_%5d.png" % local_frame_count)
         local_frame_count += 1
+        
     end = time.time()
     inference_time = torch.tensor(end - start).to(device)
     
     if is_distributed:
         torch.distributed.barrier()
+        torch.distributed.all_reduce(load_module_time, op=ReduceOp.AVG)
+        torch.distributed.all_reduce(torch_dist_init_time, op=ReduceOp.AVG)
+        torch.distributed.all_reduce(load_data_model_time, op=ReduceOp.AVG)
         torch.distributed.all_reduce(inference_time, op=ReduceOp.AVG)
     
     if world_rank == 0:
+        print("Module loading completed in %1.2fs." %load_module_time.cpu())
+        print("Torch distributed initilization completed in %1.2fs." %torch_dist_init_time.cpu())
+        print("Loading data and trained model completed in %1.2fs." %load_data_model_time.cpu())
         print("Segmentation completed in %1.2fs." %inference_time.cpu())
 

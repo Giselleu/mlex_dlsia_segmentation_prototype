@@ -1,5 +1,5 @@
 import logging
-import time
+
 import numpy as np
 import pandas as pd
 import torch
@@ -468,15 +468,14 @@ def segment(net, device, inference_loader, qlty_object, tiled_client):
     return frame_number
 
 
-# def crop_seg_save(net, device, image, qlty_object, parameters, tiled_client, frame_idx):
-def crop_seg_save(net, device, image, qlty_object, parameters, frame_idx):
+def crop_seg_save(net, device, image, qlty_object, parameters, tiled_client, frame_idx):
     assert image.ndim == 2
     # Normalize by clipping to 1% and 99% percentiles
     low = np.percentile(image.ravel(), 1)
     high = np.percentile(image.ravel(), 99)
     image = np.clip((image - low) / (high - low), 0, 1)
 
-    # image = torch.from_numpy(image)
+    image = torch.from_numpy(image)
     image = image.unsqueeze(0).unsqueeze(0)
 
     softmax = torch.nn.Softmax(dim=1)
@@ -491,8 +490,6 @@ def crop_seg_save(net, device, image, qlty_object, parameters, frame_idx):
 
     net.eval().to(device)  # send network to GPU
     results = []
-    
-    start = time.time()
     for batch in inference_loader:
         with torch.no_grad():
             torch.cuda.empty_cache()
@@ -504,8 +501,6 @@ def crop_seg_save(net, device, image, qlty_object, parameters, frame_idx):
     seg_result = torch.argmax(stitched_result, dim=1).numpy().astype(np.int8)
     # Write back to Tiled for the single frame
     # TODO: Explore the use of threading to speed up this process.
-    # tiled_client.write_block(seg_result, block=(frame_idx, 0, 0))
-    # print(f"Frame {frame_idx+1} result saved to Tiled")
-    end = time.time()
-    print("done seg frame %i in %1.2fs" %(frame_idx, end-start))
+    tiled_client.write_block(seg_result, block=(frame_idx, 0, 0))
+    print(f"Frame {frame_idx+1} result saved to Tiled")
     return seg_result
