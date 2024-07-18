@@ -10,7 +10,6 @@ import yaml
 from qlty.qlty2D import NCYXQuilt
 # from tiled.client import from_uri
 from torchvision import transforms
-from torchvision.utils import save_image
 import tifffile
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.parallel import DistributedDataParallel
@@ -220,7 +219,7 @@ if __name__ == "__main__":
         
         # save segmentation result per frame
         if world_rank == 0:
-            save_image(seg_result, "/pscratch/sd/s/shizhaou/projects/mlex_dlsia_segmentation_prototype/inference_results/seg_result_%5d.png" % local_frame_count)
+            tifffile.imwrite("/pscratch/sd/s/shizhaou/projects/mlex_dlsia_segmentation_prototype/inference_results/seg_result_%5d.png" % local_frame_count, seg_result)
         local_frame_count += 1
         
     end = time.time()
