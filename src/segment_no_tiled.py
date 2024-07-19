@@ -31,10 +31,6 @@ from seg_utils_mp import crop_seg_save
 end = time.time()
 load_module_time = end - start
 
-
-def worker_init(wrk_id):
-    np.random.seed(torch.utils.data.get_worker_info().seed%(2**32 - 1))
-
 def listdir_nohidden(path):
     for f in os.listdir(path):
         if not f.startswith('.'):
@@ -218,8 +214,9 @@ if __name__ == "__main__":
         torch.cuda.nvtx.range_pop()
         
         # save segmentation result per frame
-        if world_rank == 0:
-            tifffile.imwrite("/pscratch/sd/s/shizhaou/projects/mlex_dlsia_segmentation_prototype/inference_results/seg_result_%5d.tiff" % local_frame_count, seg_result)
+        # if world_rank == 0:
+        #     tifffile.imwrite("/pscratch/sd/s/shizhaou/projects/mlex_dlsia_segmentation_prototype/inference_results/seg_result_%d.tiff" % local_frame_count, seg_result)
+        
         local_frame_count += 1
         
     end = time.time()
