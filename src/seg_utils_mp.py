@@ -472,6 +472,7 @@ def crop_seg_save(net, device, image, qlty_object, parameters, frame_idx):
     assert image.ndim == 2
     
     torch.cuda.nvtx.range_push(f"data to device")
+    # image = torch.tensor(image)        # when using dup_folder for loading dataset
     image = image.to(device)
     torch.cuda.nvtx.range_pop()  # data to device
     

@@ -126,19 +126,22 @@ if __name__ == "__main__":
     # )
     
     start = time.time()
-    image_directory = "/pscratch/sd/s/shizhaou/projects/2024-Tanny-sand-images/Sand data_Tanny_07_03_2024/"
-    image_list = list(listdir_nohidden(image_directory))
-    dataset = np.zeros((1000, 2560, 2560))
-    for i in range(125):
-        dataset[i] = tifffile.imread(image_directory + image_list[i])
+    # image_directory = "/pscratch/sd/s/shizhaou/projects/2024-Tanny-sand-images/Sand data_Tanny_07_03_2024/"
+    
+    # image_directory = "/pscratch/sd/s/shizhaou/projects/2024-Tanny-sand-images/Sand_data_000%i/" %world_rank
+    
+#     image_list = list(listdir_nohidden(image_directory))
+#     dataset = np.zeros((1000, 2560, 2560))
+#     for i in range(125):
+#         dataset[i] = tifffile.imread(image_directory + image_list[i])
 
-    for i in range(1,8):
-        dataset[125 * i: 125 * (i + 1)] = np.copy(dataset[:125])
+#     for i in range(1,8):
+#         dataset[125 * i: 125 * (i + 1)] = np.copy(dataset[:125])
 
 #     if world_rank == 0:
 #         np.save("/pscratch/sd/s/shizhaou/projects/2024-Tanny-sand-images/1000_frame_sand_data.npy", dataset)
     
-    # dataset = np.memmap("/pscratch/sd/s/shizhaou/projects/2024-Tanny-sand-images/1000_frame_sand_data.npy", mode='w+', dtype=np.float16, shape=(1000, 2560, 2560))
+    dataset = np.memmap("/pscratch/sd/s/shizhaou/projects/2024-Tanny-sand-images/1000_frame_sand_data.npy", mode='r+', dtype=np.float32, shape=(1000, 2560, 2560))
     
     qlty_inference = NCYXQuilt(
         X=dataset.shape[-1],
@@ -150,7 +153,7 @@ if __name__ == "__main__":
     )
     
     local_data_size = dataset.shape[0] / world_size
-    
+    # local_data_size = dataset.shape[0]
     
     data_sampler = DistributedSampler(dataset, shuffle=False) if is_distributed else None
     dataloader = DataLoader(dataset,
@@ -158,8 +161,6 @@ if __name__ == "__main__":
                              batch_size=1,
                              sampler=data_sampler,
                              num_workers=1,
-                             persistent_workers=True,
-                             pin_memory=True
                            )
 
     # model_dir = os.path.join(io_parameters.models_dir, io_parameters.uid_retrieve)
@@ -194,6 +195,7 @@ if __name__ == "__main__":
     local_frame_count = 0
     
     start = time.time()
+    # for batch in range(dataset.shape[0]):
     for batch in dataloader:
         if world_rank == 0:
             if local_frame_count == 5:
@@ -206,6 +208,7 @@ if __name__ == "__main__":
             net=net,
             device=device,
             image=batch[0],
+            # image=dataset[batch],
             qlty_object=qlty_inference,
             parameters=model_parameters,
             # tiled_client=seg_client,
