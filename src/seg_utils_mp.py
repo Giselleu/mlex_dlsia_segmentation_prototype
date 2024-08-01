@@ -522,12 +522,13 @@ def crop_seg_save(net, device, image, qlty_object, parameters, frame_idx):
             patches = batch[0].type(torch.cuda.FloatTensor)
             tmp = softmax(net(patches))
             results.append(tmp)
+    torch.cuda.current_stream(device=device).synchronize()
     torch.cuda.nvtx.range_pop()  # run inference
     torch.cuda.nvtx.range_push(f"torch concat")
     results = torch.cat(results)
     torch.cuda.nvtx.range_pop()  # torch concat
     torch.cuda.nvtx.range_push(f"data to cpu")
-    results = results.cpu()
+    results = results.to(torch.device("cpu"), non_blocking=True)
     torch.cuda.nvtx.range_pop()  # data to cpu
     torch.cuda.nvtx.range_push(f"qlty_stitch")
     stitched_result, _ = qlty_object.stitch(results)
@@ -537,6 +538,8 @@ def crop_seg_save(net, device, image, qlty_object, parameters, frame_idx):
     torch.cuda.nvtx.range_pop()  # data to gpu
     torch.cuda.nvtx.range_push(f"seg_result_argmax")
     seg_result = torch.argmax(stitched_result, dim=1)
+    # unique, counts = np.unique(seg_result.cpu().numpy(), return_counts=True)
+    # print(counts)
     torch.cuda.nvtx.range_pop() # seg_result_argmax
     torch.cuda.nvtx.range_push(f"data to cpu")
     seg_result = seg_result.cpu().numpy().astype(np.int8)
@@ -547,6 +550,6 @@ def crop_seg_save(net, device, image, qlty_object, parameters, frame_idx):
     # tiled_client.write_block(seg_result, block=(frame_idx, 0, 0))
     # print(f"Frame {frame_idx+1} result saved to Tiled")
     
-    print("done seg frame %i" %(frame_idx))
+    # print("done seg frame %i" %(frame_idx))
 
     return seg_result
