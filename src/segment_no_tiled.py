@@ -15,7 +15,6 @@ from torch.utils.data import Dataset, DataLoader
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data.distributed import DistributedSampler
 from torch.distributed import ReduceOp
-from torchvision.utils import save_image as tensor_save_image
 
 from network import baggin_smsnet_ensemble, load_network
 from parameters import (
@@ -185,7 +184,7 @@ if __name__ == "__main__":
     # local_data_size = dataset.shape[0]
     
     if is_distributed:
-        data_sampler = DistributedSampler(dataset, shuffle=False) if is_distributed else None
+        data_sampler = DistributedSampler(dataset, shuffle=False)
         dataloader = DataLoader(dataset,
                                  shuffle=False,
                                  batch_size=1,
@@ -268,7 +267,6 @@ if __name__ == "__main__":
         if args.save_results == True and world_rank == 0:
             torch.cuda.nvtx.range_push(f"save_seg_result")
             tifffile.imwrite(results_dir + "/seg_result_%d.tiff" % local_frame_count, seg_result)
-            # tensor_save_image(seg_result, results_dir + "/seg_result_%d.png" % local_frame_count, format='png')
             torch.cuda.nvtx.range_pop()
         local_frame_count += 1
         

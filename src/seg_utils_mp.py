@@ -518,7 +518,7 @@ def crop_seg_save(net, device, image, qlty_object, parameters, frame_idx):
     torch.cuda.nvtx.range_push(f"run inference")
     for batch in inference_loader:
         with torch.no_grad():
-            # torch.cuda.empty_cache()     unnecessary call as we don't transfer data every epoch
+            # torch.cuda.empty_cache()     unnecessary call as we don't want to transfer data every epoch
             patches = batch[0].type(torch.cuda.FloatTensor)
             tmp = softmax(net(patches))
             results.append(tmp)
