@@ -25,6 +25,7 @@ from parameters import (
     TUNetParameters,
 )
 from seg_utils_mp import crop_seg_save
+# from seg_utils_original import crop_seg_save
 # from tiled_dataset import TiledDataset
 # from utils import allocate_array_space
 
@@ -247,10 +248,13 @@ if __name__ == "__main__":
         if world_rank == 0:
             if local_frame_count == 5:
                 torch.cuda.profiler.start()
-            if local_frame_count == 16:
+            if local_frame_count == 15:
                 torch.cuda.profiler.stop()
+                
         
-        torch.cuda.nvtx.range_push(f"step {local_frame_count}")
+        frame_idx = world_rank * local_data_size + local_frame_count
+        
+        torch.cuda.nvtx.range_push(f"step {frame_idx}")
         seg_result = crop_seg_save(
             net=net,
             device=device,
@@ -259,15 +263,17 @@ if __name__ == "__main__":
             qlty_object=qlty_inference,
             parameters=model_parameters,
             # tiled_client=seg_client,
-            frame_idx=world_rank * local_data_size + local_frame_count,
+            frame_idx=frame_idx,
         )
         torch.cuda.nvtx.range_pop()
         
         # save segmentation result per frame
-        if args.save_results == True and world_rank == 0:
+        if args.save_results:
             torch.cuda.nvtx.range_push(f"save_seg_result")
-            tifffile.imwrite(results_dir + "/seg_result_%d.tiff" % local_frame_count, seg_result)
+            tifffile.imwrite(results_dir + "/seg_result_%d.tiff" % frame_idx, seg_result)
             torch.cuda.nvtx.range_pop()
+            
+            # tifffile.imwrite("/pscratch/sd/s/shizhaou/projects/mlex_dlsia_segmentation_prototype/tiff_images" + "/sand_data_frame_%d.tiff" % frame_idx, batch[0].numpy())
         local_frame_count += 1
         
     end = time.time()

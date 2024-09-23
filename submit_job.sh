@@ -2,8 +2,8 @@
 #SBATCH -C gpu 
 #SBATCH -A als
 #SBATCH -q debug
-#SBATCH --ntasks-per-node 4
-#SBATCH --gpus-per-node 4
+#SBATCH --ntasks-per-node 1
+#SBATCH --gpus-per-node 1
 #SBATCH --time=00:10:00
 #SBATCH -o outputs/%x.out
 #SBATCH --mail-type=begin,end,fail

@@ -9,7 +9,8 @@ from qlty import cleanup
 from qlty.qlty2D import NCYXQuilt
 from torch.utils.data import DataLoader, TensorDataset, random_split
 from torch.utils.data.dataloader import default_collate
-    
+
+
 def custom_collate(batch):
     elem = batch[0]
     if isinstance(elem, tuple) and elem[0].ndim == 4:
@@ -467,41 +468,25 @@ def segment(net, device, inference_loader, qlty_object, tiled_client):
     return frame_number
 
 
-# def crop_seg_save(net, device, image, qlty_object, parameters, tiled_client, frame_idx):
 def crop_seg_save(net, device, image, qlty_object, parameters, frame_idx):
     assert image.ndim == 2
-    
-    torch.cuda.nvtx.range_push(f"data to device")
-    # image = torch.tensor(image)        # when using dup_folder for loading dataset
-    image = image.to(device)
-    torch.cuda.nvtx.range_pop()  # data to device
-    
-    torch.cuda.nvtx.range_push(f"normalize")
     # Normalize by clipping to 1% and 99% percentiles
-    # numpy implementation
-    # low = np.percentile(image, 1)
-    # high = np.percentile(image, 99)
-    # image = np.clip((image - low) / (high - low), 0, 1)
-    
-    # torch implementation
-    low = torch.quantile(image, 0.01)
-    high = torch.quantile(image, 0.99)
-    image = torch.clamp((image - low) / (high - low), 0, 1)   
-    
+    torch.cuda.nvtx.range_push(f"normalize")
+    low = np.percentile(image.ravel(), 1)
+    high = np.percentile(image.ravel(), 99)
+    image = np.clip((image - low) / (high - low), 0, 1)
     torch.cuda.nvtx.range_pop() # normalize
     
     torch.cuda.nvtx.range_push(f"torch image squeeze")
-    # image = torch.from_numpy(image)
     image = image.unsqueeze(0).unsqueeze(0)
     torch.cuda.nvtx.range_pop() # torch image squeeze
 
     softmax = torch.nn.Softmax(dim=1)
-    
-    torch.cuda.nvtx.range_push(f"qlty_unstitch")
     # first patch up the image
+    torch.cuda.nvtx.range_push(f"qlty_unstitch")
     patches = qlty_object.unstitch(image)
     torch.cuda.nvtx.range_pop()  # qlty_unstitch
-    
+
     torch.cuda.nvtx.range_push(f"DataLoader")
     inference_loader = DataLoader(
         TensorDataset(patches),
@@ -509,48 +494,28 @@ def crop_seg_save(net, device, image, qlty_object, parameters, frame_idx):
         batch_size=parameters.batch_size_inference,
     )
     torch.cuda.nvtx.range_pop()  # DataLoader
-    
+
+    net.eval().to(device)  # send network to GPU
     results = []
-    
-    # optimization note: (from PyTorch Lightning)
-    # Don’t call torch.cuda.empty_cache() unnecessarily! Every time you call this, ALL your GPUs have to wait to sync.
     
     torch.cuda.nvtx.range_push(f"run inference")
     for batch in inference_loader:
         with torch.no_grad():
-            # torch.cuda.empty_cache()     unnecessary call as we don't want to transfer data every epoch
-            patches = batch[0].type(torch.cuda.FloatTensor)
-            tmp = softmax(net(patches))
+            torch.cuda.empty_cache()
+            patches = batch[0].type(torch.FloatTensor)
+            tmp = softmax(net(patches.to(device))).cpu()
             results.append(tmp)
-    torch.cuda.current_stream(device=device).synchronize()
     torch.cuda.nvtx.range_pop()  # run inference
     torch.cuda.nvtx.range_push(f"torch concat")
     results = torch.cat(results)
     torch.cuda.nvtx.range_pop()  # torch concat
-    torch.cuda.nvtx.range_push(f"data to cpu")
-    # results = results.to(torch.device("cpu"))
-    results = results.to(torch.device("cpu"), non_blocking=True)
-    torch.cuda.nvtx.range_pop()  # data to cpu
     torch.cuda.nvtx.range_push(f"qlty_stitch")
-    stitched_result, _ = qlty_object.stitch(results, use_numba=True)
+    stitched_result, _ = qlty_object.stitch(results, use_numba=False)
     torch.cuda.nvtx.range_pop()  # qlty_stitch
-    torch.cuda.nvtx.range_push(f"data to gpu")
-    stitched_result = stitched_result.to(device)
-    torch.cuda.nvtx.range_pop()  # data to gpu
     torch.cuda.nvtx.range_push(f"seg_result_argmax")
-    seg_result = torch.argmax(stitched_result, dim=1)
-    # unique, counts = np.unique(seg_result.cpu().numpy(), return_counts=True)
-    # print(counts)
+    seg_result = torch.argmax(stitched_result, dim=1).numpy().astype(np.int8)
     torch.cuda.nvtx.range_pop() # seg_result_argmax
-    torch.cuda.nvtx.range_push(f"data to cpu")
-    seg_result = seg_result.cpu().numpy().astype(np.int8)
-    torch.cuda.nvtx.range_pop()  # data to cpu
-    
     # Write back to Tiled for the single frame
     # TODO: Explore the use of threading to speed up this process.
-    # tiled_client.write_block(seg_result, block=(frame_idx, 0, 0))
     # print(f"Frame {frame_idx+1} result saved to Tiled")
-    
-    # print("done seg frame %i" %(frame_idx))
-
     return seg_result
