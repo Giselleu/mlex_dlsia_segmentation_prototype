@@ -254,7 +254,7 @@ if __name__ == "__main__":
         
         frame_idx = world_rank * local_data_size + local_frame_count
         
-        torch.cuda.nvtx.range_push(f"step {frame_idx}")
+        torch.cuda.nvtx.range_push(f"frame {int(frame_idx)}")
         seg_result = crop_seg_save(
             net=net,
             device=device,
