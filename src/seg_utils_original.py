@@ -9,7 +9,7 @@ from qlty import cleanup
 from qlty.qlty2D import NCYXQuilt
 from torch.utils.data import DataLoader, TensorDataset, random_split
 from torch.utils.data.dataloader import default_collate
-
+import tifffile
 
 def custom_collate(batch):
     elem = batch[0]
@@ -477,6 +477,8 @@ def crop_seg_save(net, device, image, qlty_object, parameters, frame_idx):
     image = np.clip((image - low) / (high - low), 0, 1)
     torch.cuda.nvtx.range_pop() # normalize
     
+    # tifffile.imwrite("phase_1.tiff", image.numpy())
+    # print(image.shape)
     torch.cuda.nvtx.range_push(f"torch image squeeze")
     image = image.unsqueeze(0).unsqueeze(0)
     torch.cuda.nvtx.range_pop() # torch image squeeze
@@ -486,7 +488,9 @@ def crop_seg_save(net, device, image, qlty_object, parameters, frame_idx):
     torch.cuda.nvtx.range_push(f"qlty_unstitch")
     patches = qlty_object.unstitch(image)
     torch.cuda.nvtx.range_pop()  # qlty_unstitch
-
+    
+    # tifffile.imwrite("phase_2.tiff", patches[177].numpy())
+    # print(patches.shape)
     torch.cuda.nvtx.range_push(f"DataLoader")
     inference_loader = DataLoader(
         TensorDataset(patches),
@@ -506,14 +510,22 @@ def crop_seg_save(net, device, image, qlty_object, parameters, frame_idx):
             tmp = softmax(net(patches.to(device))).cpu()
             results.append(tmp)
     torch.cuda.nvtx.range_pop()  # run inference
+    # tifffile.imwrite("phase_3.tiff", results[0][177].numpy())
+    # print(results[0].shape)
     torch.cuda.nvtx.range_push(f"torch concat")
     results = torch.cat(results)
+    # tifffile.imwrite("phase_4.tiff", results[177].numpy())
+    # print(results.shape)
     torch.cuda.nvtx.range_pop()  # torch concat
     torch.cuda.nvtx.range_push(f"qlty_stitch")
     stitched_result, _ = qlty_object.stitch(results, use_numba=False)
+    # tifffile.imwrite("phase_5.tiff", stitched_result.numpy()[0])
+    # print(stitched_result.shape)
     torch.cuda.nvtx.range_pop()  # qlty_stitch
     torch.cuda.nvtx.range_push(f"seg_result_argmax")
     seg_result = torch.argmax(stitched_result, dim=1).numpy().astype(np.int8)
+    # tifffile.imwrite("phase_6.tiff", seg_result)
+    # print(seg_result.shape)
     torch.cuda.nvtx.range_pop() # seg_result_argmax
     # Write back to Tiled for the single frame
     # TODO: Explore the use of threading to speed up this process.

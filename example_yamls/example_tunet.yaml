@@ -2,13 +2,13 @@
 
 # I/O
 io_parameters:
-  data_tiled_uri: https://tiled-seg.als.lbl.gov/api/v1/metadata/reconstruction/rec20190524_085542_clay_testZMQ_8bit/20190524_085542_clay_testZMQ_
-  data_tiled_api_key:
-  mask_tiled_uri: https://tiled-seg.als.lbl.gov/api/v1/metadata/mlex_store/mlex_segm_user/rec20190524_085542_clay_testZMQ_8bit/a558f7b1773855b9453bf6c91079699d
+  data_tiled_uri: https://tiled-seg.als.lbl.gov
+  data_tiled_api_key: 8d572c9e658ea2a7e612ed8c044922bbb250d88d530e892f84515b2623d49d40
+  mask_tiled_uri: 
   mask_tiled_api_key:
-  seg_tiled_uri: http://0.0.0.0:8888/api/v1/metadata/mlex_store/rec20190524_085542_clay_testZMQ_8bit/results
+  seg_tiled_uri: 
   seg_tiled_api_key:
-  uid_save:
+  uid_save: valid_save_uid
   uid_retrieve:
   models_dir: .
 

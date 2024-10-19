@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import yaml
 from qlty.qlty2D import NCYXQuilt
-# from tiled.client import from_uri
+from tiled.client import from_uri
 from torchvision import transforms
 import tifffile
 from torch.utils.data import Dataset, DataLoader
@@ -18,7 +18,7 @@ from torch.distributed import ReduceOp
 
 from network import baggin_smsnet_ensemble, load_network
 from parameters import (
-    # IOParameters,
+    IOParameters,
     MSDNetParameters,
     SMSNetEnsembleParameters,
     TUNet3PlusParameters,
@@ -28,6 +28,10 @@ from seg_utils_mp import crop_seg_save
 # from seg_utils_original import crop_seg_save
 # from tiled_dataset import TiledDataset
 # from utils import allocate_array_space
+
+from tiled.client import show_logs
+
+show_logs()
 
 end = time.time()
 load_module_time = end - start
@@ -102,8 +106,8 @@ if __name__ == "__main__":
         parameters = yaml.safe_load(file)
 
     # Validate and load I/O related parameters
-    # io_parameters = parameters["io_parameters"]
-    # io_parameters = IOParameters(**io_parameters)
+    io_parameters = parameters["io_parameters"]
+    io_parameters = IOParameters(**io_parameters)
 
     # Detect which model we have, then load corresponding parameters
     raw_parameters = parameters["model_parameters"]
@@ -127,9 +131,9 @@ if __name__ == "__main__":
     if world_rank == 0:
         print("Parameters loaded successfully.")
 
-    # data_tiled_client = from_uri(
-    #     io_parameters.data_tiled_uri, api_key=io_parameters.data_tiled_api_key
-    # )
+    data_tiled_client = from_uri(
+        io_parameters.data_tiled_uri, api_key=io_parameters.data_tiled_api_key
+    )
     # mask_tiled_client = None
     # if io_parameters.mask_tiled_uri:
     #     mask_tiled_client = from_uri(
@@ -172,6 +176,8 @@ if __name__ == "__main__":
     
     dataset = np.load("/pscratch/sd/s/shizhaou/projects/2024-Tanny-sand-images/2160_frame_sand_data.npy", mmap_mode='c')
     
+    # dataset = data_tiled_client['reconstruction']['dls_k11-38750']['img_k11-38739_']
+    
     qlty_inference = NCYXQuilt(
         X=dataset.shape[-1],
         Y=dataset.shape[-2],
@@ -193,6 +199,7 @@ if __name__ == "__main__":
                                  num_workers=1,
                                  pin_memory=True,
                                  persistent_workers=True,
+                                 prefetch_factor=6,
                                )
     else:
         dataloader = DataLoader(dataset,
@@ -201,6 +208,7 @@ if __name__ == "__main__":
                                  num_workers=1,
                                  pin_memory=True,
                                  persistent_workers=True,
+                                 prefetch_factor=6,
                                )
 
     # model_dir = os.path.join(io_parameters.models_dir, io_parameters.uid_retrieve)
@@ -243,6 +251,7 @@ if __name__ == "__main__":
     local_frame_count = 0
     
     start = time.time()
+    
     # for batch in range(dataset.shape[0]):
     for batch in dataloader:
         if world_rank == 0:
@@ -250,10 +259,10 @@ if __name__ == "__main__":
                 torch.cuda.profiler.start()
             if local_frame_count == 15:
                 torch.cuda.profiler.stop()
-                
-        
+
+
         frame_idx = world_rank * local_data_size + local_frame_count
-        
+
         torch.cuda.nvtx.range_push(f"frame {int(frame_idx)}")
         seg_result = crop_seg_save(
             net=net,
@@ -266,13 +275,13 @@ if __name__ == "__main__":
             frame_idx=frame_idx,
         )
         torch.cuda.nvtx.range_pop()
-        
+
         # save segmentation result per frame
         if args.save_results:
             torch.cuda.nvtx.range_push(f"save_seg_result")
             tifffile.imwrite(results_dir + "/seg_result_%d.tiff" % frame_idx, seg_result)
             torch.cuda.nvtx.range_pop()
-            
+
             # tifffile.imwrite("/pscratch/sd/s/shizhaou/projects/mlex_dlsia_segmentation_prototype/tiff_images" + "/sand_data_frame_%d.tiff" % frame_idx, batch[0].numpy())
         local_frame_count += 1
         
